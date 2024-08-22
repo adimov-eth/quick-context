@@ -36,31 +36,6 @@ npm link
 
 This will create a symlink to the q-context package in your global node_modules directory.
 
-## Development
-
-For local development:
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/q-context.git
-   ```
-2. Navigate to the project directory:
-   ```bash
-   cd q-context
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Run the CLI locally:
-   ```bash
-   node bin/quick-context.js
-   ```
-
-## Usage
-
-After linking the package, you can use the `q` command in your terminal:
-
 ## Quick Start
 
 1. Initialize Q Context:
@@ -112,27 +87,83 @@ A context that is automatically used when no specific context is specified.
 
 Q Context uses the concept of "contexts" - named sets of file patterns that determine which files are included when the context is activated. Here are some basic usage examples:
 
+### Creating and Updating Contexts
+
 ```bash
-# Initialize Q Context (first-time setup)
-q init
+# Create a new context for frontend development
+q update frontend '**/*.js' '**/*.jsx' '**/*.css' '!node_modules/**'
 
-# Create or update a context
-q update mycontext '*.js' '!node_modules/**'
+# Update an existing context to include TypeScript files
+q update frontend '**/*.ts' '**/*.tsx'
 
-# Switch to a context
-q switch mycontext
+# Create a context for backend development
+q update backend 'server/**/*.js' 'database/**/*.js' '!**/*.test.js'
 
-# List all available contexts
-q list
+# Create a context for documentation
+q update docs '**/*.md' 'docs/**/*'
+```
 
+### Switching Between Contexts
+
+```bash
+# Switch to the frontend context
+q switch frontend
+
+# Switch to the backend context
+q switch backend
+
+# Switch to the documentation context
+q switch docs
+```
+
+### Using Contexts
+
+```bash
 # Use the current context (copies files to clipboard)
 q
 
-# Add a new pattern to an existing context
-q add mycontext '*.jsx'
+# Use a specific context without switching to it
+q frontend
+```
 
-# Remove a pattern from an existing context
-q remove mycontext '*.test.js'
+### Listing and Managing Contexts
+
+```bash
+# List all available contexts
+q list
+
+# Set a default context
+q set-default frontend
+
+# Delete a context
+q delete old-context
+```
+
+### Working with Git
+
+```bash
+# Create a context from unstaged git changes
+q git-changes recent-work
+
+# Create a context from staged git changes
+q git-staged ready-to-commit
+```
+
+### Adding and Removing Items from Contexts
+
+```bash
+# Add a new file pattern to an existing context
+q add frontend '**/*.scss'
+
+# Remove a file pattern from a context
+q remove backend '**/*.test.js'
+
+# Add another context as an include
+q add fullstack frontend
+q add fullstack backend
+
+# Exclude a specific directory
+q add frontend '!build/**'
 ```
 
 ## Configuration
@@ -156,6 +187,7 @@ contexts:
     patterns:
       - 'src/**/*.js'
       - 'src/**/*.jsx'
+      - 'src/**/*.css'
       - '!src/**/*.test.js'
     maxLines: 20000
     warningThreshold: 10000
@@ -181,24 +213,6 @@ cleanup:
   maxAge: 7
   maxFiles: 100
 ```
-
-### Context Properties
-
-Each context can have the following properties:
-
-- `patterns` (required): An array of glob patterns to match files.
-- `maxLines` (optional): The maximum number of lines to include when copying content from this context. Overrides the global `maxLines` setting.
-- `warningThreshold` (optional): The number of lines at which to show a warning about the context size. Overrides the global `warningThreshold` setting.
-- `description` (optional): A brief description of what the context is for.
-- `include` (optional): An array of other context names to include, allowing for composition of contexts.
-- `exclude` (optional): An array of patterns to explicitly exclude, even if matched by the include patterns.
-
-Global settings:
-
-- `default`: The name of the default context to use when no context is specified.
-- `maxLines`: The global maximum number of lines for all contexts.
-- `warningThreshold`: The global warning threshold for all contexts.
-- `cleanup`: Settings for automatic cleanup of old context files.
 
 ## Command Reference
 
@@ -229,30 +243,9 @@ List all available contexts.
 
 Add a filter, context, or file to an existing context.
 
-- If `<item>` starts with `!`, it's added as an exclude pattern.
-- If `<item>` contains `*` or `/`, it's added as a file pattern.
-- If `<item>` matches an existing context name, it's added as an included context.
-- Otherwise, `<item>` is treated as a specific file to include.
-
-Example:
-```bash
-q add mycontext '*.js'  # Add a file pattern
-q add mycontext '!node_modules'  # Add an exclude pattern
-q add mycontext othercontext  # Include another context
-q add mycontext specific_file.js  # Add a specific file
-```
-
 ### `q remove <context> <item>`
 
 Remove a filter, context, or file from an existing context.
-
-Example:
-```bash
-q remove mycontext '*.js'  # Remove a file pattern
-q remove mycontext '!node_modules'  # Remove an exclude pattern
-q remove mycontext othercontext  # Remove an included context
-q remove mycontext specific_file.js  # Remove a specific file
-```
 
 ### `q git-changes <name>`
 
@@ -311,35 +304,9 @@ When you use the `q` command to load a context to the clipboard, Q Context also 
 2. Keep a history of your context usage.
 3. Access previously used contexts without regenerating them.
 
-The saved files are named using the format: `contextName_timestamp.txt`.
-
-Example:
-```bash
-q mycontext
-# Output:
-# Context 'mycontext' with 10 files loaded to clipboard.
-# Context saved to: /home/user/.qctx/mycontext_2023-05-15T14-30-45-123Z.txt
-```
-
 ### Automatic Cleanup
 
 Q Context can automatically clean up old context files based on your configuration settings. This helps manage disk usage and keeps your context history tidy.
-
-The cleanup process now provides statistics on the number of files deleted and the amount of space freed. You can also perform a "dry run" to see what would be cleaned up without actually deleting any files.
-
-Example usage in your scripts:
-
-```javascript
-const { cleanupOldFiles } = require('./lib/file_operations');
-
-// Perform actual cleanup
-const { deletedCount, freedSpace } = await cleanupOldFiles(config);
-console.log(`Deleted ${deletedCount} files, freeing ${freedSpace} bytes`);
-
-// Perform a dry run
-const dryRunResults = await cleanupOldFiles(config, true);
-console.log(`Dry run would delete ${dryRunResults.deletedCount} files, freeing ${dryRunResults.freedSpace} bytes`);
-```
 
 ## Troubleshooting
 

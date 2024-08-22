@@ -7,19 +7,18 @@ const clipboardy = require('clipboardy');
 const anymatch = require('anymatch');
 const readline = require('readline');
 
-const { saveContextToFile, cleanupOldFiles, debug } = require('../lib/file_operations');
-const {
-  loadConfig, saveConfig, getAllContexts, CONFIG_FILE, GLOBAL_CONFIG_FILE,
-} = require('../lib/config');
-const {
-  getCurrentContext, setCurrentContext, addToContext, removeFromContext,
-} = require('../lib/state');
+const { saveContextToFile, cleanupOldFiles } = require('../lib/file_operations');
+const { loadConfig, saveConfig, getAllContexts } = require('../lib/config');
+const { getCurrentContext, setCurrentContext } = require('../lib/state');
+const { addToContext, removeFromContext } = require('../lib/context_operations');
 const { getGitChanges } = require('../lib/git');
+const { debug } = require('../lib/utils');
+const { QContextError, handleError } = require('../lib/error_handler');
+const { GLOBAL_CONFIG_FILE, CONFIG_FILE } = require('../lib/constants');
 
 async function getFilesFromPatterns(patterns, excludePatterns = [], dir = process.cwd()) {
   if (!patterns || !Array.isArray(patterns) || patterns.length === 0) {
-    console.error('Error: Invalid or empty patterns array');
-    return [];
+    throw new QContextError('Invalid or empty patterns array', 'INVALID_PATTERNS');
   }
 
   debug(`Matching files with patterns: ${patterns.join(', ')}`);
@@ -44,7 +43,7 @@ async function getFilesFromPatterns(patterns, excludePatterns = [], dir = proces
       }
     }));
   } catch (error) {
-    console.error(`Error reading directory ${dir}:`, error.message);
+    throw new QContextError(`Error reading directory ${dir}: ${error.message}`, 'DIR_READ_ERROR');
   }
   debug(`Matched ${results.length} files`);
   return results;
@@ -61,8 +60,7 @@ async function readFileContent(filePath, maxLines) {
     }
     return content;
   } catch (error) {
-    console.error(`Error reading file ${filePath}:`, error.message);
-    return '';
+    throw new QContextError(`Error reading file ${filePath}: ${error.message}`, 'FILE_READ_ERROR');
   }
 }
 
@@ -78,7 +76,7 @@ async function updateContext(name, patterns, options = {}) {
     await setCurrentContext(name);
     console.log(`Context '${name}' updated and set as current.`);
   } catch (error) {
-    console.error(`Error updating context '${name}':`, error.message);
+    handleError(error, `Error updating context '${name}':`);
   }
 }
 
@@ -94,10 +92,10 @@ async function deleteContext(name) {
         await setCurrentContext(config.default || Object.keys(config.contexts)[0]);
       }
     } else {
-      console.error(`Context '${name}' not found.`);
+      throw new QContextError(`Context '${name}' not found.`, 'CONTEXT_NOT_FOUND');
     }
   } catch (error) {
-    console.error(`Error deleting context '${name}':`, error.message);
+    handleError(error, `Error deleting context '${name}':`);
   }
 }
 
@@ -120,13 +118,13 @@ async function initializeConfig() {
 
     const contextName = await question('Enter a name for your first context: ');
     if (!contextName.trim()) {
-      throw new Error('Context name cannot be empty.');
+      throw new QContextError('Context name cannot be empty.', 'EMPTY_CONTEXT_NAME');
     }
 
     const patterns = await question('Enter file patterns for this context (comma-separated): ');
     const patternList = patterns.split(',').map((p) => p.trim()).filter(Boolean);
     if (patternList.length === 0) {
-      throw new Error('At least one pattern is required.');
+      throw new QContextError('At least one pattern is required.', 'NO_PATTERNS');
     }
 
     const config = {
@@ -140,8 +138,8 @@ async function initializeConfig() {
     console.log(`Configuration created at ${configPath}`);
     return contextName;
   } catch (error) {
-    console.error('Error creating configuration:', error.message);
-    return null; // Return null in case of error
+    handleError(error, 'Error creating configuration:');
+    return null;
   } finally {
     rl.close();
   }
@@ -150,15 +148,13 @@ async function initializeConfig() {
 async function getContextPatterns(contextName, config, visitedContexts = new Set()) {
   debug(`Getting patterns for context: ${contextName}`);
   if (visitedContexts.has(contextName)) {
-    console.error(`Circular dependency detected in context: ${contextName}`);
-    return { patterns: [], exclude: [] };
+    throw new QContextError(`Circular dependency detected in context: ${contextName}`, 'CIRCULAR_DEPENDENCY');
   }
   visitedContexts.add(contextName);
 
   const context = config.contexts[contextName];
   if (!context) {
-    console.error(`Context not found: ${contextName}`);
-    return { patterns: [], exclude: [] };
+    throw new QContextError(`Context not found: ${contextName}`, 'CONTEXT_NOT_FOUND');
   }
 
   let patterns = [...(context.patterns || [])];
@@ -170,8 +166,11 @@ async function getContextPatterns(contextName, config, visitedContexts = new Set
   if (context.include) {
     debug(`Including contexts: ${context.include.join(', ')}`);
     const includedContextsResults = await Promise.all(
-      // eslint-disable-next-line max-len
-      context.include.map((includedContextName) => getContextPatterns(includedContextName, config, new Set(visitedContexts))),
+      context.include.map((includedContextName) => getContextPatterns(
+        includedContextName,
+        config,
+        new Set(visitedContexts),
+      )),
     );
 
     patterns = [
@@ -197,7 +196,7 @@ const yargsInstance = yargs
       await setCurrentContext(contextName);
       console.log(`Initialized with context: ${contextName}`);
     } catch (error) {
-      console.error('Error during initialization:', error.message);
+      handleError(error, 'Error during initialization:');
       process.exit(1);
     }
   })
@@ -301,13 +300,14 @@ const yargsInstance = yargs
     try {
       const contextName = argv.context || await getCurrentContext();
       if (!contextName) {
-        console.error('No context specified and no current context found.');
-        return;
+        throw new QContextError('No context specified and no current context found.', 'NO_CONTEXT');
       }
       const config = await loadConfig();
       if (!config || !config.contexts) {
-        console.error('Invalid configuration. Please run "q init" to set up your configuration.');
-        return;
+        throw new QContextError(
+          'Invalid configuration. Please run "q init" to set up your configuration.',
+          'INVALID_CONFIG',
+        );
       }
       const context = config.contexts[contextName];
       if (context) {
@@ -342,9 +342,8 @@ const yargsInstance = yargs
           clipboardy.writeSync(contextContent);
           debug(`Context '${contextName}' with ${files.length} files loaded to clipboard.`);
         } catch (error) {
-          console.error('Error writing to clipboard:', error.message);
+          throw new QContextError(`Error writing to clipboard: ${error.message}`, 'CLIPBOARD_ERROR');
         }
-        debug(`Context '${contextName}' with ${files.length} files loaded to clipboard.`);
 
         const savedFilePath = await saveContextToFile(contextName, contextContent);
         console.log(`Context saved to: ${savedFilePath}`);
@@ -356,10 +355,10 @@ const yargsInstance = yargs
           console.warn(`Warning: Large context (${totalLines} lines). This may impact performance.`);
         }
       } else {
-        console.error(`Context '${contextName}' not found.`);
+        throw new QContextError(`Context '${contextName}' not found.`, 'CONTEXT_NOT_FOUND');
       }
     } catch (error) {
-      console.error('Error1:', error.message);
+      handleError(error, 'Error loading context:');
     }
   })
   .help('h')
