@@ -20,13 +20,46 @@ Q Context is a powerful Command Line Interface (CLI) tool designed to help devel
 
 ## Installation
 
-To install Q Context globally, run:
+As this project is currently only available on GitHub, you can install it by cloning the repository:
 
 ```bash
-npm install -g q-context
+git clone https://github.com/your-username/q-context.git
+cd q-context
+npm install
 ```
 
-After installation, you can use the `q` command in your terminal. Welcome to the Q Context family! 🎉
+To use the `q` command globally on your system, you can link the package:
+
+```bash
+npm link
+```
+
+This will create a symlink to the q-context package in your global node_modules directory.
+
+## Development
+
+For local development:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/q-context.git
+   ```
+2. Navigate to the project directory:
+   ```bash
+   cd q-context
+   ```
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+4. Run the CLI locally:
+   ```bash
+   node bin/quick-context.js
+   ```
+
+## Usage
+
+After linking the package, you can use the `q` command in your terminal:
 
 ## Quick Start
 
