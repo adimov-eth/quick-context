@@ -1,10 +1,14 @@
 contexts:
   rer:
     patterns:
-      - bin/*
       - lib/*
+      - bin/*
+      - README.MD
+      - package.json
   q:
-    patterns: 
+    patterns:
       - bin/quick-context.js
       - README.MD
 default: rer
+maxLines: 30000
+warningThreshold: 15000

@@ -7,28 +7,30 @@ const clipboardy = require('clipboardy');
 const anymatch = require('anymatch');
 const readline = require('readline');
 
+const { saveContextToFile, cleanupOldFiles, debug } = require('../lib/file_operations');
+
 const {
   loadConfig, saveConfig, getAllContexts, CONFIG_FILE, GLOBAL_CONFIG_FILE,
 } = require('../lib/config');
-const { getCurrentContext, setCurrentContext } = require('../lib/state');
+const {
+  getCurrentContext, setCurrentContext, addToContext, removeFromContext,
+} = require('../lib/state');
 const { getGitChanges } = require('../lib/git');
 
-const DEBUG = process.env.DEBUG === 'true';
-
-function debug(message) {
-  if (DEBUG) {
-    console.log(`[DEBUG] ${message}`);
-  }
-}
-
-function getFilesFromPatterns(patterns, dir = process.cwd()) {
+function getFilesFromPatterns(patterns, excludePatterns = [], dir = process.cwd()) {
   if (!patterns || !Array.isArray(patterns) || patterns.length === 0) {
     console.error('Error: Invalid or empty patterns array');
     return [];
   }
 
   debug(`Matching files with patterns: ${patterns.join(', ')}`);
-  const matcher = anymatch(patterns);
+  if (excludePatterns.length > 0) {
+    debug(`Excluding files with patterns: ${excludePatterns.join(', ')}`);
+  }
+
+  const includeMatcher = anymatch(patterns);
+  const excludeMatcher = anymatch(excludePatterns);
+
   let results = [];
   try {
     const list = fs.readdirSync(dir);
@@ -36,8 +38,8 @@ function getFilesFromPatterns(patterns, dir = process.cwd()) {
       const filePath = path.relative(process.cwd(), path.join(dir, fileName));
       const stat = fs.statSync(path.join(dir, fileName));
       if (stat && stat.isDirectory()) {
-        results = results.concat(getFilesFromPatterns(patterns, path.join(dir, fileName)));
-      } else if (matcher(filePath)) {
+        results = results.concat(getFilesFromPatterns(patterns, excludePatterns, path.join(dir, fileName)));
+      } else if (includeMatcher(filePath) && !excludeMatcher(filePath)) {
         results.push(filePath);
       }
     });
@@ -136,6 +138,44 @@ function initializeConfig() {
   });
 }
 
+function getContextPatterns(contextName, config, visitedContexts = new Set()) {
+  debug(`Getting patterns for context: ${contextName}`);
+  if (visitedContexts.has(contextName)) {
+    console.error(`Circular dependency detected in context: ${contextName}`);
+    return { patterns: [], exclude: [] };
+  }
+  visitedContexts.add(contextName);
+
+  const context = config.contexts[contextName];
+  if (!context) {
+    console.error(`Context not found: ${contextName}`);
+    return { patterns: [], exclude: [] };
+  }
+
+  let patterns = [...(context.patterns || [])];
+  let exclude = [...(context.exclude || [])];
+
+  debug(`Base patterns: ${patterns.join(', ')}`);
+  debug(`Base exclude patterns: ${exclude.join(', ')}`);
+
+  if (context.include) {
+    debug(`Including contexts: ${context.include.join(', ')}`);
+    context.include.forEach((includedContextName) => {
+      const {
+        patterns: includedPatterns,
+        exclude: includedExclude,
+      } = getContextPatterns(includedContextName, config, new Set(visitedContexts));
+      patterns = [...patterns, ...includedPatterns];
+      exclude = [...exclude, ...includedExclude];
+    });
+  }
+
+  debug(`Final patterns: ${patterns.join(', ')}`);
+  debug(`Final exclude patterns: ${exclude.join(', ')}`);
+
+  return { patterns, exclude };
+}
+
 const yargsInstance = yargs
   .command(['init', 'i'], 'Initialize the configuration', {}, async () => {
     try {
@@ -201,14 +241,33 @@ const yargsInstance = yargs
   .command(['delete <name>', 'd <name>'], 'Delete an existing context', {}, (argv) => {
     deleteContext(argv.name);
   })
-  .command('$0 [context]', 'Load context to clipboard', {}, (argv) => {
+  .command(['add <context> <item>', 'a <context> <item>'], 'Add an item to a context', {}, (argv) => {
+    try {
+      addToContext(argv.context, argv.item);
+    } catch (error) {
+      console.error(error.message);
+    }
+  })
+  .command(['remove <context> <item>', 'r <context> <item>'], 'Remove an item from a context', {}, (argv) => {
+    try {
+      removeFromContext(argv.context, argv.item);
+    } catch (error) {
+      console.error(error.message);
+    }
+  })
+  .command('$0 [context]', 'Load context to clipboard', {}, async (argv) => {
     const contextName = argv.context || getCurrentContext();
     const config = loadConfig();
     const context = config.contexts[contextName];
-    if (context && Array.isArray(context.patterns)) {
+    if (context) {
       debug(`Loading context: ${contextName}`);
-      const files = getFilesFromPatterns(context.patterns);
-      let contextContent = `Context: ${contextName}\n\n`;
+      const { patterns, exclude } = getContextPatterns(contextName, config);
+      const files = getFilesFromPatterns(patterns, exclude); // Updated to include exclude patterns
+      let contextContent = `Context: ${contextName}\n`;
+      if (context.description) {
+        contextContent += `Description: ${context.description}\n`;
+      }
+      contextContent += '\n';
       let totalLines = 0;
       const maxLines = context.maxLines || config.maxLines || 30000;
       const warningThreshold = context.warningThreshold || config.warningThreshold || 15000;
@@ -227,16 +286,24 @@ const yargsInstance = yargs
 
       try {
         clipboardy.writeSync(contextContent);
-        console.log(`Context '${contextName}' with ${files.length} files loaded to clipboard.`);
+        debug(`Context '${contextName}' with ${files.length} files loaded to clipboard.`);
+
+        // Save the context to a file
+        const savedFilePath = await saveContextToFile(contextName, contextContent);
+        console.log(`Context saved to: ${savedFilePath}`);
+
+        // Cleanup old files
+        await cleanupOldFiles(config);
+
         console.log(`Total lines: ${totalLines}`);
         if (totalLines > warningThreshold) {
           console.warn(`Warning: Large context (${totalLines} lines). This may impact performance.`);
         }
       } catch (error) {
-        console.error('Error writing to clipboard:', error.message);
+        console.error('Error:', error.message);
       }
     } else {
-      console.error(`Context '${contextName}' not found or has invalid patterns.`);
+      console.error(`Context '${contextName}' not found.`);
     }
   })
   .help('h')
