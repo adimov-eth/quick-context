@@ -202,10 +202,10 @@ const yargsInstance = yargs
       warningThreshold: argv.warningThreshold,
     });
   })
-  .command(['switch <name>', 's <name>'], 'Switch to an existing context', {}, (argv) => {
+  .command(['switch <name>', 's <name>'], 'Switch to an existing context', {}, async (argv) => {
     const config = loadConfig();
     if (config.contexts[argv.name]) {
-      setCurrentContext(argv.name);
+      await setCurrentContext(argv.name);
       console.log(`Switched to context '${argv.name}'.`);
     } else {
       console.error(`Context '${argv.name}' not found.`);
@@ -256,7 +256,7 @@ const yargsInstance = yargs
     }
   })
   .command('$0 [context]', 'Load context to clipboard', {}, async (argv) => {
-    const contextName = argv.context || getCurrentContext();
+    const contextName = argv.context || await getCurrentContext();
     const config = loadConfig();
     const context = config.contexts[contextName];
     if (context) {
