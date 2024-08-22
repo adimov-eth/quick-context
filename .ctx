@@ -1,0 +1,10 @@
+contexts:
+  rer:
+    patterns:
+      - bin/*
+      - lib/*
+  q:
+    patterns: 
+      - bin/quick-context.js
+      - README.MD
+default: rer
